@@ -1,0 +1,31 @@
+{
+    "vps": {
+        "host": "187.124.116.166",
+        "port": 22,
+        "username": "root",
+        "password": "",
+        "private_key": "",
+        "enabled": true
+    },
+    "discord": {
+        "webhook_url": "",
+        "enabled": false,
+        "report_interval_hours": 6,
+        "alert_on_recovery": true
+    },
+    "thresholds": {
+        "cpu_percent": 85.0,
+        "ram_percent": 90.0,
+        "disk_percent": 90.0,
+        "failed_ssh_attempts": 5
+    },
+    "websites": [
+        {
+            "name": "Stratonally Hosting",
+            "url": "https://hosting.stratonally.com",
+            "expected_status": 200
+        }
+    ],
+    "monitor_interval_seconds": 60,
+    "last_report_timestamp": 0
+}

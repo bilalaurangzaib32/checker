@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VPS Sentinel — 24/7 Server & Docker Monitor</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0b0f19',
+                        cardbg: '#111827',
+                        cardborder: '#1f2937',
+                        accent: '#3b82f6',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+        .code-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="border-b border-cardborder bg-cardbg/80 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 py-3.5">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+            <!-- Brand -->
+            <div class="flex items-center space-x-3">
+                <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+                    <i class="fa-solid fa-shield-halved text-lg"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-lg font-bold tracking-tight text-white">VPS Sentinel</h1>
+                        <span class="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">24/7 Realtime</span>
+                    </div>
+                    <p class="text-xs text-gray-400 flex items-center gap-1.5" id="vps-target-label">
+                        <i class="fa-solid fa-server text-gray-500"></i> <span id="header-host">No IP configured</span>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Server Connection & Actions -->
+            <div class="flex items-center flex-wrap gap-2.5">
+                <!-- Status Badge -->
+                <div id="status-pill" class="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs font-medium">
+                    <span class="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse"></span>
+                    <span id="status-text" class="text-gray-300">Checking...</span>
+                </div>
+
+                <!-- Last Checked -->
+                <span class="text-xs text-gray-400 hidden sm:inline" id="last-updated-text">Updated: Just now</span>
+
+                <!-- Refresh Button -->
+                <button onclick="refreshData(true)" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 transition text-gray-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-cardborder">
+                    <i class="fa-solid fa-rotate-right" id="refresh-icon"></i> Refresh
+                </button>
+
+                <!-- Trigger 6hr Report Button -->
+                <button onclick="triggerDiscordReport()" class="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 active:scale-95 transition rounded-lg text-xs font-semibold flex items-center gap-1.5">
+                    <i class="fa-brands fa-discord"></i> Send Report
+                </button>
+
+                <!-- Settings Button -->
+                <button onclick="openSettingsModal()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 transition text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-blue-600/20">
+                    <i class="fa-solid fa-sliders"></i> Settings
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-8 space-y-6">
+
+        <!-- Active Alerts Banner (Dynamic) -->
+        <div id="alerts-container" class="hidden space-y-2">
+            <!-- Populated via JS if any issue detected -->
+        </div>
+
+        <!-- Metric KPI Cards Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- CPU Card -->
+            <div class="bg-cardbg border border-cardborder rounded-2xl p-4 shadow-sm relative overflow-hidden group hover:border-gray-700 transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">CPU Utilization</span>
+                    <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-microchip"></i>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline space-x-2">
+                    <span class="text-2xl font-bold text-white tracking-tight" id="kpi-cpu">0.0%</span>
+                    <span class="text-xs text-gray-400" id="kpi-load">Load: 0.0</span>
+                </div>
+                <div class="mt-3 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                    <div id="kpi-cpu-bar" class="bg-blue-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- RAM Memory Card -->
+            <div class="bg-cardbg border border-cardborder rounded-2xl p-4 shadow-sm relative overflow-hidden group hover:border-gray-700 transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">RAM Usage</span>
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-memory"></i>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline space-x-2">
+                    <span class="text-2xl font-bold text-white tracking-tight" id="kpi-ram">0.0%</span>
+                    <span class="text-xs text-gray-400" id="kpi-ram-raw">0 / 0 MB</span>
+                </div>
+                <div class="mt-3 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                    <div id="kpi-ram-bar" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Disk Card -->
+            <div class="bg-cardbg border border-cardborder rounded-2xl p-4 shadow-sm relative overflow-hidden group hover:border-gray-700 transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Disk Storage</span>
+                    <div class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-hard-drive"></i>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline space-x-2">
+                    <span class="text-2xl font-bold text-white tracking-tight" id="kpi-disk">0.0%</span>
+                    <span class="text-xs text-gray-400" id="kpi-disk-raw">0 / 0 GB</span>
+                </div>
+                <div class="mt-3 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                    <div id="kpi-disk-bar" class="bg-purple-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Server Uptime & Docker Summary Card -->
+            <div class="bg-cardbg border border-cardborder rounded-2xl p-4 shadow-sm relative overflow-hidden group hover:border-gray-700 transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Uptime & Containers</span>
+                    <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-cubes"></i>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline space-x-2">
+                    <span class="text-2xl font-bold text-white tracking-tight" id="kpi-uptime">-</span>
+                </div>
+                <div class="mt-2 text-xs text-gray-400 flex items-center justify-between">
+                    <span id="kpi-docker-running">0 Docker Running</span>
+                    <span id="kpi-websites-status" class="text-emerald-400">0 Sites OK</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts and Overview Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Resource Trend Chart -->
+            <div class="lg:col-span-2 bg-cardbg border border-cardborder rounded-2xl p-5 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-sm font-semibold text-white">Live Resource Load History</h2>
+                        <p class="text-xs text-gray-400">Real-time trend of CPU & Memory utilization</p>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs">
+                        <span class="flex items-center gap-1.5 text-blue-400"><span class="w-2 h-2 rounded-full bg-blue-500"></span> CPU</span>
+                        <span class="flex items-center gap-1.5 text-emerald-400"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> RAM</span>
+                    </div>
+                </div>
+                <div class="h-60 w-full">
+                    <canvas id="metricsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Monitored Websites & Security Card -->
+            <div class="bg-cardbg border border-cardborder rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-globe text-blue-400"></i> Monitored Websites
+                        </h2>
+                        <button onclick="openAddSiteModal()" class="text-xs text-blue-400 hover:text-blue-300 font-medium">
+                            + Add URL
+                        </button>
+                    </div>
+                    <!-- Websites List -->
+                    <div id="websites-list" class="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+                        <p class="text-xs text-gray-500 italic">No websites configured yet.</p>
+                    </div>
+                </div>
+
+                <!-- Security Box -->
+                <div class="mt-4 pt-3 border-t border-cardborder">
+                    <h3 class="text-xs font-semibold text-gray-300 flex items-center gap-2 mb-2">
+                        <i class="fa-solid fa-shield-virus text-amber-400"></i> Security & SSH Audit
+                    </h3>
+                    <div class="flex items-center justify-between text-xs bg-gray-900/60 p-2.5 rounded-xl border border-gray-800">
+                        <span class="text-gray-400">Failed SSH Logins:</span>
+                        <span id="security-failed-count" class="font-bold text-gray-200 code-font">0</span>
+                    </div>
+                    <div id="security-ips-box" class="mt-1.5 text-[11px] text-gray-500 truncate code-font">
+                        No malicious attempts detected.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Docker Containers Table -->
+        <div class="bg-cardbg border border-cardborder rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-brands fa-docker text-blue-400 text-lg"></i>
+                    <h2 class="text-sm font-semibold text-white">Docker Containers</h2>
+                    <span id="docker-count-badge" class="px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 text-[11px] font-medium border border-gray-700">0</span>
+                </div>
+                <span class="text-xs text-gray-400">Auto-discovers all containers on VPS</span>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead>
+                        <tr class="border-b border-gray-800 text-gray-400 uppercase tracking-wider font-semibold">
+                            <th class="pb-3 px-2">Container Name</th>
+                            <th class="pb-3 px-2">Image</th>
+                            <th class="pb-3 px-2">State</th>
+                            <th class="pb-3 px-2">CPU</th>
+                            <th class="pb-3 px-2">Memory</th>
+                            <th class="pb-3 px-2">Ports</th>
+                        </tr>
+                    </thead>
+                    <tbody id="docker-table-body" class="divide-y divide-gray-800/60">
+                        <tr>
+                            <td colspan="6" class="py-6 text-center text-gray-500">No Docker containers detected or VPS not connected.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Recent Incidents / Activity Log -->
+        <div class="bg-cardbg border border-cardborder rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-list-check text-indigo-400 text-sm"></i>
+                    <h2 class="text-sm font-semibold text-white">Incident & Unusual Activity Log</h2>
+                </div>
+                <span class="text-xs text-gray-400">Alerts sent to Discord in realtime</span>
+            </div>
+            <div id="incidents-log" class="space-y-2 max-h-56 overflow-y-auto pr-2">
+                <p class="text-xs text-gray-500 italic py-2">No incidents recorded yet. System is quiet.</p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-cardborder py-4 text-center text-xs text-gray-500 bg-cardbg/40">
+        VPS Sentinel — Lightweight Autonomous 24/7 Monitoring Engine
+    </footer>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-cardbg border border-cardborder rounded-2xl max-w-2xl w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div class="flex items-center justify-between border-b border-cardborder pb-3">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-blue-500"></i> Sentinel Settings
+                </h3>
+                <button onclick="closeSettingsModal()" class="text-gray-400 hover:text-white text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Form -->
+            <form id="settings-form" onsubmit="saveSettings(event)" class="space-y-4">
+                <!-- VPS Section -->
+                <div>
+                    <h4 class="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">1. VPS Server Credentials</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div class="sm:col-span-2">
+                            <label class="block text-xs text-gray-400 mb-1">VPS IP Address</label>
+                            <input type="text" id="cfg-host" required placeholder="e.g. 192.168.1.1 or 159.65.x.x" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">SSH Port</label>
+                            <input type="number" id="cfg-port" value="22" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">SSH Username</label>
+                            <input type="text" id="cfg-username" value="root" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">SSH Password</label>
+                            <input type="password" id="cfg-password" placeholder="Leave empty if using SSH key" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <label class="block text-xs text-gray-400 mb-1">SSH Private Key (Optional - PEM / OpenSSH / Ed25519 format)</label>
+                        <textarea id="cfg-key" rows="2" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..." class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500"></textarea>
+                    </div>
+                    <!-- Test SSH Button -->
+                    <div class="mt-2 flex items-center justify-between">
+                        <button type="button" onclick="testSSHConnection()" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+                            <i class="fa-solid fa-plug text-blue-400"></i> Test VPS SSH Connection
+                        </button>
+                        <span id="ssh-test-status" class="text-xs"></span>
+                    </div>
+                </div>
+
+                <!-- Discord Section -->
+                <div class="pt-3 border-t border-cardborder">
+                    <h4 class="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-2">2. Discord Notifications</h4>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Discord Webhook URL</label>
+                        <input type="url" id="cfg-webhook" placeholder="https://discord.com/api/webhooks/..." class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Periodic Report Interval (Hours)</label>
+                            <input type="number" id="cfg-report-hours" value="6" min="1" max="24" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div class="flex items-center pt-5">
+                            <label class="flex items-center space-x-2 text-xs text-gray-300 cursor-pointer">
+                                <input type="checkbox" id="cfg-alert-recovery" checked class="rounded bg-gray-800 border-gray-700 text-blue-600 focus:ring-0">
+                                <span>Alert when issue recovers / resolves</span>
+                            </label>
+                        </div>
+                    </div>
+                    <!-- Test Discord Button -->
+                    <div class="mt-2 flex items-center justify-between">
+                        <button type="button" onclick="testDiscordWebhook()" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+                            <i class="fa-brands fa-discord text-indigo-400"></i> Test Discord Notification
+                        </button>
+                        <span id="discord-test-status" class="text-xs"></span>
+                    </div>
+                </div>
+
+                <!-- Thresholds Section -->
+                <div class="pt-3 border-t border-cardborder">
+                    <h4 class="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">3. Alert Thresholds (Unusual Activity Triggers)</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">CPU Alert Limit (%)</label>
+                            <input type="number" id="cfg-threshold-cpu" value="85" min="10" max="100" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">RAM Alert Limit (%)</label>
+                            <input type="number" id="cfg-threshold-ram" value="90" min="10" max="100" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Disk Alert Limit (%)</label>
+                            <input type="number" id="cfg-threshold-disk" value="90" min="10" max="100" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="pt-4 border-t border-cardborder flex items-center justify-end space-x-3">
+                    <button type="button" onclick="closeSettingsModal()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-semibold transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/30">
+                        Save Settings
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Website Modal -->
+    <div id="site-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-cardbg border border-cardborder rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-cardborder pb-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-globe text-blue-400"></i> Add Monitored Website
+                </h3>
+                <button onclick="closeAddSiteModal()" class="text-gray-400 hover:text-white">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <form onsubmit="addWebsite(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Friendly Name</label>
+                    <input type="text" id="site-name" required placeholder="e.g. Production API" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Website URL</label>
+                    <input type="url" id="site-url" required placeholder="https://example.com" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white code-font focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeAddSiteModal()" class="px-3 py-1.5 bg-gray-800 text-gray-300 rounded-lg text-xs font-semibold">Cancel</button>
+                    <button type="submit" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold">Add Website</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification Popup -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 bg-gray-800 border border-gray-700 text-white px-4 py-2.5 rounded-xl shadow-xl text-xs flex items-center space-x-2 transition-all transform translate-y-20 opacity-0 pointer-events-none">
+        <span id="toast-icon">ℹ️</span>
+        <span id="toast-msg">Notification</span>
+    </div>
+
+    <script>
+        // Setup Chart
+        let metricsChartInstance = null;
+
+        function initChart() {
+            const ctx = document.getElementById('metricsChart').getContext('2d');
+            metricsChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'CPU %',
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.35,
+                            fill: true,
+                            data: []
+                        },
+                        {
+                            label: 'RAM %',
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.05)',
+                            borderWidth: 2,
+                            tension: 0.35,
+                            fill: true,
+                            data: []
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#1f2937',
+                            borderColor: '#374151',
+                            borderWidth: 1,
+                            titleFont: { size: 11 },
+                            bodyFont: { size: 11 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(31, 41, 55, 0.5)' },
+                            ticks: { color: '#6b7280', font: { size: 10 } }
+                        },
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(31, 41, 55, 0.5)' },
+                            ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v + '%' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function showToast(msg, icon = 'ℹ️') {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').innerText = msg;
+            document.getElementById('toast-icon').innerText = icon;
+            toast.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+            }, 3500);
+        }
+
+        async function fetchConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const cfg = await res.json();
+                document.getElementById('header-host').innerText = cfg.vps.host ? `${cfg.vps.username}@${cfg.vps.host}` : 'No IP configured';
+                document.getElementById('cfg-host').value = cfg.vps.host || '';
+                document.getElementById('cfg-port').value = cfg.vps.port || 22;
+                document.getElementById('cfg-username').value = cfg.vps.username || 'root';
+                document.getElementById('cfg-password').value = cfg.vps.password || '';
+                document.getElementById('cfg-key').value = cfg.vps.private_key || '';
+                document.getElementById('cfg-webhook').value = cfg.discord.webhook_url || '';
+                document.getElementById('cfg-report-hours').value = cfg.discord.report_interval_hours || 6;
+                document.getElementById('cfg-alert-recovery').checked = cfg.discord.alert_on_recovery !== false;
+                document.getElementById('cfg-threshold-cpu').value = cfg.thresholds.cpu_percent || 85;
+                document.getElementById('cfg-threshold-ram').value = cfg.thresholds.ram_percent || 90;
+                document.getElementById('cfg-threshold-disk').value = cfg.thresholds.disk_percent || 90;
+            } catch (err) {
+                console.error("Config fetch error", err);
+            }
+        }
+
+        async function refreshData(manual = false) {
+            const icon = document.getElementById('refresh-icon');
+            if (icon) icon.classList.add('fa-spin');
+
+            try {
+                const url = manual ? '/api/refresh' : '/api/metrics';
+                const res = await fetch(url, { method: manual ? 'POST' : 'GET' });
+                const data = await res.json();
+                renderMetrics(data);
+                if (manual) showToast('Data refreshed!', '🔄');
+            } catch (err) {
+                console.error("Fetch metrics error:", err);
+            } finally {
+                if (icon) icon.classList.remove('fa-spin');
+            }
+        }
+
+        function renderMetrics(data) {
+            const status = data.status || {};
+            const sys = status.system || {};
+            const docker = status.docker || {};
+            const websites = status.websites || [];
+            const sec = status.security || {};
+            const history = data.history || [];
+            const incidents = data.incidents || [];
+            const activeAlerts = status.active_alerts || [];
+
+            // Updated time
+            if (status.last_check_time) {
+                document.getElementById('last-updated-text').innerText = `Updated: ${status.last_check_time.split(' ')[1]}`;
+            }
+
+            // Status Pill
+            const pill = document.getElementById('status-pill');
+            const statusText = document.getElementById('status-text');
+            if (status.vps_online) {
+                pill.className = "flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs font-medium";
+                statusText.className = "text-emerald-400";
+                statusText.innerText = sys.agentless ? "Host Online (Agentless IP Mode)" : "VPS Online";
+                pill.querySelector('span').className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
+            } else {
+                pill.className = "flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-xs font-medium";
+                statusText.className = "text-red-400";
+                statusText.innerText = status.vps_error ? "Connection Failed" : "Offline / Unset";
+                pill.querySelector('span').className = "w-2.5 h-2.5 rounded-full bg-red-500";
+            }
+
+            // Alerts Banner
+            const alertsBox = document.getElementById('alerts-container');
+            if (activeAlerts.length > 0) {
+                alertsBox.classList.remove('hidden');
+                alertsBox.innerHTML = activeAlerts.map(a => `
+                    <div class="bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-2.5 rounded-xl text-xs flex items-center space-x-2 animate-pulse">
+                        <i class="fa-solid fa-triangle-exclamation text-red-400"></i>
+                        <span>${a}</span>
+                    </div>
+                `).join('');
+            } else {
+                alertsBox.classList.add('hidden');
+                alertsBox.innerHTML = '';
+            }
+
+            // KPIs
+            const cpu = sys.cpu_percent || 0.0;
+            const ram = sys.ram_percent || 0.0;
+            const disk = sys.disk_percent || 0.0;
+            const uptime = sys.uptime_str || '-';
+
+            document.getElementById('kpi-cpu').innerText = `${cpu}%`;
+            document.getElementById('kpi-cpu-bar').style.width = `${cpu}%`;
+            if (sys.load_avg) {
+                document.getElementById('kpi-load').innerText = sys.agentless ? `Ports: ${sys.ports_summary || '22, 80, 443'}` : `Load: ${sys.load_avg.join(', ')}`;
+            }
+
+            document.getElementById('kpi-ram').innerText = `${ram}%`;
+            document.getElementById('kpi-ram-bar').style.width = `${ram}%`;
+            document.getElementById('kpi-ram-raw').innerText = `${sys.ram_used_mb || 0} / ${sys.ram_total_mb || 0} MB`;
+
+            document.getElementById('kpi-disk').innerText = `${disk}%`;
+            document.getElementById('kpi-disk-bar').style.width = `${disk}%`;
+            document.getElementById('kpi-disk-raw').innerText = `${sys.disk_used_gb || 0} / ${sys.disk_total_gb || 0} GB`;
+
+            document.getElementById('kpi-uptime').innerText = uptime;
+            const dSum = docker.summary || {};
+            document.getElementById('kpi-docker-running').innerText = sys.agentless ? `Ports: 22, 80, 443 UP` : `${dSum.running || 0}/${dSum.total || 0} Docker Active`;
+
+            const onlineSites = websites.filter(w => w.online).length;
+            document.getElementById('kpi-websites-status').innerText = `${onlineSites}/${websites.length} Sites OK`;
+
+            // Security
+            document.getElementById('security-failed-count').innerText = sec.failed_logins_count || 0;
+            const ips = sec.recent_failed_ips || [];
+            document.getElementById('security-ips-box').innerText = ips.length > 0 ? `Attacker IPs: ${ips.join(', ')}` : (sys.agentless ? "Network Probe Active (Port 22 SSH listening)" : "No malicious attempts detected.");
+
+            // Docker Containers Table
+            const dBody = document.getElementById('docker-table-body');
+            const containers = docker.containers || [];
+            document.getElementById('docker-count-badge').innerText = containers.length;
+
+            if (containers.length === 0) {
+                dBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-gray-500">${sys.agentless ? 'Agentless IP Mode: Ports 22 (SSH), 80 (HTTP), 443 (HTTPS) are active. Add SSH password/key in Settings anytime to inspect containers.' : 'No Docker containers running.'}</td></tr>`;
+            } else {
+                dBody.innerHTML = containers.map(c => {
+                    const isRunning = c.state === 'running';
+                    const badgeClass = isRunning ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" : "bg-red-500/10 text-red-400 border-red-500/30";
+                    return `
+                        <tr class="hover:bg-gray-800/40 transition">
+                            <td class="py-3 px-2 font-semibold text-white">${c.name}</td>
+                            <td class="py-3 px-2 text-gray-400 truncate max-w-[150px] code-font">${c.image}</td>
+                            <td class="py-3 px-2">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeClass}">
+                                    ${c.state.toUpperCase()}
+                                </span>
+                            </td>
+                            <td class="py-3 px-2 code-font text-gray-300">${c.cpu_usage || '0%'}</td>
+                            <td class="py-3 px-2 code-font text-gray-300">${c.mem_usage || '-'} (${c.mem_percent || '0%'})</td>
+                            <td class="py-3 px-2 text-gray-400 truncate max-w-[160px] code-font">${c.ports || '-'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            // Websites List
+            const wList = document.getElementById('websites-list');
+            if (websites.length === 0) {
+                wList.innerHTML = `<p class="text-xs text-gray-500 italic">No websites configured yet.</p>`;
+            } else {
+                wList.innerHTML = websites.map((w, idx) => `
+                    <div class="flex items-center justify-between p-2.5 rounded-xl bg-gray-900/60 border border-gray-800 text-xs">
+                        <div class="flex items-center space-x-2 truncate">
+                            <span class="w-2 h-2 rounded-full ${w.online ? 'bg-emerald-500' : 'bg-red-500'}"></span>
+                            <div class="truncate">
+                                <p class="font-medium text-white truncate">${w.name}</p>
+                                <p class="text-[10px] text-gray-400 truncate code-font">${w.url}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-[11px] code-font ${w.online ? 'text-emerald-400' : 'text-red-400'}">
+                                ${w.online ? `${w.latency_ms}ms` : 'DOWN'}
+                            </span>
+                            <button onclick="removeWebsite(${idx})" class="text-gray-500 hover:text-red-400 text-xs">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // Incidents Log
+            const incLog = document.getElementById('incidents-log');
+            if (incidents.length === 0) {
+                incLog.innerHTML = `<p class="text-xs text-gray-500 italic py-2">No incidents recorded yet. System is quiet.</p>`;
+            } else {
+                incLog.innerHTML = incidents.map(inc => {
+                    const isCrit = inc.level === 'CRITICAL';
+                    const isRes = inc.level === 'RESOLVED';
+                    const iconColor = isCrit ? 'text-red-400' : (isRes ? 'text-emerald-400' : 'text-amber-400');
+                    return `
+                        <div class="p-2.5 rounded-xl bg-gray-900/50 border border-gray-800/80 text-xs flex items-start space-x-3">
+                            <span class="${iconColor} mt-0.5"><i class="fa-solid fa-circle-exclamation"></i></span>
+                            <div class="flex-1">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-semibold text-gray-200">${inc.title}</span>
+                                    <span class="text-[10px] text-gray-500">${inc.timestamp.split(' ')[1]}</span>
+                                </div>
+                                <p class="text-[11px] text-gray-400 mt-0.5">${inc.details}</p>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Update Chart
+            if (metricsChartInstance && history.length > 0) {
+                metricsChartInstance.data.labels = history.map(h => h.time);
+                metricsChartInstance.data.datasets[0].data = history.map(h => h.cpu);
+                metricsChartInstance.data.datasets[1].data = history.map(h => h.ram);
+                metricsChartInstance.update('none');
+            }
+        }
+
+        // Settings Modal Handlers
+        function openSettingsModal() {
+            fetchConfig();
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+        function closeSettingsModal() {
+            document.getElementById('settings-modal').classList.add('hidden');
+        }
+
+        async function saveSettings(e) {
+            e.preventDefault();
+            const payload = {
+                vps: {
+                    host: document.getElementById('cfg-host').value.trim(),
+                    port: parseInt(document.getElementById('cfg-port').value) || 22,
+                    username: document.getElementById('cfg-username').value.trim() || 'root',
+                    password: document.getElementById('cfg-password').value,
+                    private_key: document.getElementById('cfg-key').value.trim(),
+                    enabled: true
+                },
+                discord: {
+                    webhook_url: document.getElementById('cfg-webhook').value.trim(),
+                    enabled: true,
+                    report_interval_hours: parseInt(document.getElementById('cfg-report-hours').value) || 6,
+                    alert_on_recovery: document.getElementById('cfg-alert-recovery').checked
+                },
+                thresholds: {
+                    cpu_percent: parseFloat(document.getElementById('cfg-threshold-cpu').value) || 85,
+                    ram_percent: parseFloat(document.getElementById('cfg-threshold-ram').value) || 90,
+                    disk_percent: parseFloat(document.getElementById('cfg-threshold-disk').value) || 90,
+                    failed_ssh_attempts: 5
+                }
+            };
+
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Settings saved successfully!', '✅');
+                    closeSettingsModal();
+                    refreshData(true);
+                } else {
+                    showToast('Failed to save settings', '❌');
+                }
+            } catch (err) {
+                showToast('Error saving settings', '❌');
+            }
+        }
+
+        async function testSSHConnection() {
+            const statusEl = document.getElementById('ssh-test-status');
+            statusEl.innerHTML = '<span class="text-blue-400"><i class="fa-solid fa-spinner fa-spin"></i> Connecting...</span>';
+
+            const payload = {
+                host: document.getElementById('cfg-host').value.trim(),
+                port: parseInt(document.getElementById('cfg-port').value) || 22,
+                username: document.getElementById('cfg-username').value.trim() || 'root',
+                password: document.getElementById('cfg-password').value,
+                private_key: document.getElementById('cfg-key').value.trim()
+            };
+
+            try {
+                const res = await fetch('/api/test-ssh', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    statusEl.innerHTML = `<span class="text-emerald-400 font-medium">✓ Connected!</span>`;
+                } else {
+                    statusEl.innerHTML = `<span class="text-red-400 font-medium truncate max-w-[200px]" title="${data.message}">✗ ${data.message}</span>`;
+                }
+            } catch (err) {
+                statusEl.innerHTML = `<span class="text-red-400">✗ Connection error</span>`;
+            }
+        }
+
+        async function testDiscordWebhook() {
+            const statusEl = document.getElementById('discord-test-status');
+            statusEl.innerHTML = '<span class="text-indigo-400"><i class="fa-solid fa-spinner fa-spin"></i> Sending...</span>';
+
+            const webhook = document.getElementById('cfg-webhook').value.trim();
+            try {
+                const res = await fetch('/api/test-discord', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ webhook_url: webhook })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    statusEl.innerHTML = `<span class="text-emerald-400 font-medium">✓ Sent! Check Discord</span>`;
+                } else {
+                    statusEl.innerHTML = `<span class="text-red-400 font-medium">✗ ${data.message}</span>`;
+                }
+            } catch (err) {
+                statusEl.innerHTML = `<span class="text-red-400">✗ Failed to deliver</span>`;
+            }
+        }
+
+        async function triggerDiscordReport() {
+            try {
+                showToast('Sending report to Discord...', '📨');
+                const res = await fetch('/api/send-report-now', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, '✅');
+                } else {
+                    showToast(data.message, '⚠️');
+                }
+            } catch (err) {
+                showToast('Error sending report', '❌');
+            }
+        }
+
+        // Add Website Handlers
+        function openAddSiteModal() {
+            document.getElementById('site-modal').classList.remove('hidden');
+        }
+        function closeAddSiteModal() {
+            document.getElementById('site-modal').classList.add('hidden');
+        }
+        async function addWebsite(e) {
+            e.preventDefault();
+            const name = document.getElementById('site-name').value.trim();
+            const url = document.getElementById('site-url').value.trim();
+
+            try {
+                const res = await fetch('/api/websites', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, url })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Website added!', '🌐');
+                    closeAddSiteModal();
+                    document.getElementById('site-name').value = '';
+                    document.getElementById('site-url').value = '';
+                    refreshData(true);
+                }
+            } catch (err) {
+                showToast('Failed to add website', '❌');
+            }
+        }
+        async function removeWebsite(idx) {
+            if (!confirm('Are you sure you want to stop monitoring this website?')) return;
+            try {
+                const res = await fetch(`/api/websites/${idx}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Website removed', '🗑️');
+                    refreshData(true);
+                }
+            } catch (err) {
+                showToast('Failed to remove website', '❌');
+            }
+        }
+
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', () => {
+            initChart();
+            fetchConfig();
+            refreshData();
+            // Real-time polling every 10 seconds for GUI
+            setInterval(() => refreshData(false), 10000);
+        });
+    </script>
+</body>
+</html>
